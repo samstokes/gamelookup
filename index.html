@@ -1,0 +1,72 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>Can I Play It?</title>
+<meta name="description" content="Look up a game on ProtonDB and GeForce NOW at once.">
+<meta name="theme-color" content="#0e1116">
+<link rel="manifest" href="./manifest.webmanifest">
+<link rel="icon" href="./icons/icon-192.png">
+<link rel="apple-touch-icon" href="./icons/apple-touch-icon.png">
+<link rel="stylesheet" href="./styles.css">
+</head>
+<body>
+
+<header class="bar">
+  <form id="search-form" autocomplete="off">
+    <div class="field">
+      <input id="q" type="search" name="q" placeholder="Search for a game…"
+             enterkeyhint="search" autocapitalize="off" autocorrect="off"
+             spellcheck="false" aria-label="Game name"
+             aria-autocomplete="list" aria-controls="suggestions" aria-expanded="false" role="combobox">
+      <button type="button" id="clear" class="clear" aria-label="Clear" hidden>&times;</button>
+    </div>
+    <ul id="suggestions" role="listbox" hidden></ul>
+  </form>
+  <button id="install" class="install" hidden>Install</button>
+</header>
+
+<main id="main">
+  <p id="status" class="status">Loading the GeForce NOW list…</p>
+
+  <section id="result" hidden>
+    <h1 id="title"></h1>
+    <p id="subtitle" class="subtitle"></p>
+
+    <div id="gfn" class="verdict">
+      <div class="verdict-head">
+        <span class="source">GeForce NOW</span>
+        <span id="gfn-badge" class="badge"></span>
+      </div>
+      <p id="gfn-detail" class="detail"></p>
+      <ul id="gfn-alts" class="alts" hidden></ul>
+    </div>
+
+    <div class="verdict">
+      <div class="verdict-head">
+        <span class="source">ProtonDB</span>
+        <a id="pdb-link" class="badge link" target="_blank" rel="noopener">Open&nbsp;&#8599;</a>
+      </div>
+      <p id="pdb-detail" class="detail"></p>
+      <div class="frame-wrap">
+        <iframe id="pdb-frame" title="ProtonDB" referrerpolicy="no-referrer"></iframe>
+        <p id="frame-note" class="frame-note" hidden></p>
+      </div>
+    </div>
+  </section>
+
+  <section id="empty" class="empty" hidden>
+    <p>Type a game name to check whether it runs on your Linux laptop (ProtonDB) or streams on GeForce NOW.</p>
+    <p class="muted"><span id="count"></span></p>
+  </section>
+</main>
+
+<footer class="foot">
+  <span id="freshness"></span>
+  <button id="refresh" class="linkish" type="button">Refresh list</button>
+</footer>
+
+<script src="./app.js"></script>
+</body>
+</html>

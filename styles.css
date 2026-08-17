@@ -1,0 +1,326 @@
+:root {
+  --bg: #0e1116;
+  --bg-raised: #161b23;
+  --bg-input: #1d232d;
+  --line: #2a323f;
+  --text: #e8ecf2;
+  --muted: #93a0b3;
+  --accent: #5ee27a;
+  --warn: #f0b849;
+  --bad: #ef6f6f;
+  --radius: 12px;
+  --bar-h: 60px;
+}
+
+@media (prefers-color-scheme: light) {
+  :root {
+    --bg: #f6f7f9;
+    --bg-raised: #ffffff;
+    --bg-input: #ffffff;
+    --line: #dde1e8;
+    --text: #16191f;
+    --muted: #5c6675;
+    --accent: #1a9e40;
+    --warn: #a86a06;
+    --bad: #c4362f;
+  }
+}
+
+* { box-sizing: border-box; }
+
+/* Our display:flex rules outrank the UA's [hidden] styling, so restate it. */
+[hidden] { display: none !important; }
+
+html, body {
+  margin: 0;
+  height: 100%;
+}
+
+body {
+  display: flex;
+  flex-direction: column;
+  background: var(--bg);
+  color: var(--text);
+  font: 16px/1.45 system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
+  -webkit-text-size-adjust: 100%;
+}
+
+/* ---- search bar ---- */
+
+.bar {
+  position: sticky;
+  top: 0;
+  z-index: 10;
+  display: flex;
+  gap: 8px;
+  align-items: flex-start;
+  padding: 8px 12px;
+  padding-top: max(8px, env(safe-area-inset-top));
+  background: var(--bg);
+  border-bottom: 1px solid var(--line);
+}
+
+#search-form {
+  position: relative;
+  flex: 1;
+  min-width: 0;
+}
+
+.field { position: relative; }
+
+#q {
+  width: 100%;
+  height: 44px;
+  padding: 0 38px 0 14px;
+  border: 1px solid var(--line);
+  border-radius: 22px;
+  background: var(--bg-input);
+  color: var(--text);
+  font-size: 16px; /* keeps Android from zooming on focus */
+  appearance: none;
+}
+
+#q:focus {
+  outline: none;
+  border-color: var(--accent);
+}
+
+#q::-webkit-search-cancel-button { display: none; }
+
+.clear {
+  position: absolute;
+  top: 50%;
+  right: 6px;
+  width: 32px;
+  height: 32px;
+  transform: translateY(-50%);
+  border: 0;
+  border-radius: 50%;
+  background: transparent;
+  color: var(--muted);
+  font-size: 22px;
+  line-height: 1;
+  cursor: pointer;
+}
+
+.install {
+  height: 44px;
+  padding: 0 14px;
+  border: 1px solid var(--accent);
+  border-radius: 22px;
+  background: transparent;
+  color: var(--accent);
+  font-size: 15px;
+  cursor: pointer;
+}
+
+/* ---- suggestions ---- */
+
+#suggestions {
+  position: absolute;
+  top: calc(100% + 6px);
+  left: 0;
+  right: 0;
+  max-height: 60vh;
+  margin: 0;
+  padding: 4px;
+  overflow-y: auto;
+  list-style: none;
+  background: var(--bg-raised);
+  border: 1px solid var(--line);
+  border-radius: var(--radius);
+  box-shadow: 0 12px 32px rgb(0 0 0 / 0.45);
+}
+
+#suggestions li {
+  display: flex;
+  gap: 10px;
+  align-items: baseline;
+  padding: 11px 12px;
+  border-radius: 8px;
+  cursor: pointer;
+}
+
+#suggestions li[aria-selected="true"] { background: var(--bg-input); }
+
+#suggestions .s-title {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+#suggestions .s-hint {
+  flex: none;
+  color: var(--muted);
+  font-size: 12px;
+}
+
+#suggestions .s-raw { color: var(--muted); }
+#suggestions .s-raw strong { color: var(--text); font-weight: 600; }
+
+/* ---- main ---- */
+
+#main {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  min-height: 0;
+  padding: 12px;
+  gap: 12px;
+}
+
+#result {
+  display: flex;
+  flex: 1;
+  flex-direction: column;
+  min-height: 0;
+  gap: 12px;
+}
+
+#title {
+  margin: 2px 0 0;
+  font-size: 21px;
+  line-height: 1.25;
+}
+
+.subtitle {
+  margin: 2px 0 0;
+  color: var(--muted);
+  font-size: 14px;
+}
+
+.subtitle:empty { display: none; }
+
+.verdict {
+  padding: 12px;
+  background: var(--bg-raised);
+  border: 1px solid var(--line);
+  border-radius: var(--radius);
+}
+
+/* the ProtonDB card grows to fill whatever is left */
+.verdict:last-child {
+  display: flex;
+  flex: 1;
+  flex-direction: column;
+  min-height: 320px;
+}
+
+.verdict-head {
+  display: flex;
+  gap: 10px;
+  align-items: center;
+  justify-content: space-between;
+}
+
+.source {
+  color: var(--muted);
+  font-size: 13px;
+  font-weight: 600;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+}
+
+.badge {
+  padding: 4px 10px;
+  border: 1px solid currentColor;
+  border-radius: 999px;
+  font-size: 14px;
+  font-weight: 600;
+  white-space: nowrap;
+}
+
+.badge.yes { color: var(--accent); }
+.badge.no { color: var(--muted); }
+.badge.warn { color: var(--warn); }
+.badge.link { color: var(--accent); text-decoration: none; }
+
+.detail {
+  margin: 8px 0 0;
+  color: var(--muted);
+  font-size: 14px;
+}
+
+.detail:empty { display: none; }
+
+.alts {
+  margin: 10px 0 0;
+  padding: 0;
+  list-style: none;
+  font-size: 14px;
+}
+
+.alts li { padding: 2px 0; }
+
+.alts button {
+  padding: 0;
+  border: 0;
+  background: none;
+  color: var(--accent);
+  font: inherit;
+  text-align: left;
+  cursor: pointer;
+}
+
+/* ---- ProtonDB frame ---- */
+
+/* Full-bleed to the card edges: ProtonDB's own mobile layout needs every pixel,
+   and anything narrower makes it scroll sideways. */
+.frame-wrap {
+  position: relative;
+  flex: 1;
+  min-height: 0;
+  margin: 10px -12px -12px;
+  overflow: hidden;
+  background: var(--bg-input);
+  border-top: 1px solid var(--line);
+  border-radius: 0 0 var(--radius) var(--radius);
+}
+
+#pdb-frame {
+  display: block;
+  width: 100%;
+  height: 100%;
+  border: 0;
+}
+
+.frame-note {
+  position: absolute;
+  inset: auto 0 0 0;
+  margin: 0;
+  padding: 10px 12px;
+  background: var(--bg-raised);
+  border-top: 1px solid var(--line);
+  color: var(--muted);
+  font-size: 13px;
+}
+
+/* ---- misc ---- */
+
+.status, .empty { color: var(--muted); }
+.empty p { margin: 0 0 8px; }
+.muted { color: var(--muted); font-size: 13px; }
+.status.error { color: var(--bad); }
+
+.foot {
+  display: flex;
+  gap: 10px;
+  align-items: center;
+  justify-content: space-between;
+  padding: 8px 12px;
+  padding-bottom: max(8px, env(safe-area-inset-bottom));
+  border-top: 1px solid var(--line);
+  color: var(--muted);
+  font-size: 12px;
+}
+
+.linkish {
+  padding: 0;
+  border: 0;
+  background: none;
+  color: var(--accent);
+  font: inherit;
+  cursor: pointer;
+}
