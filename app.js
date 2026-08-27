@@ -187,6 +187,66 @@ function describeAge(fetchedAt, stale) {
   return `${games.length} GFN games · updated ${when}${stale ? ' (offline)' : ''}`;
 }
 
+// ---------------------------------------------------------------- share target
+
+function asHttpUrl(value) {
+  try {
+    const url = new URL(value);
+    return url.protocol === 'http:' || url.protocol === 'https:' ? url : null;
+  } catch (err) {
+    return null; // not a URL — the ordinary case for a shared text selection
+  }
+}
+
+// Steam links carry a readable slug next to the appid: /app/1145360/Hollow_Knight_Silksong/
+function fromSteam(url) {
+  if (!/(^|\.)steampowered\.com$/.test(url.hostname)) return null;
+  const m = /^\/app\/(\d+)(?:\/([^/]+))?/.exec(url.pathname);
+  return m ? { appid: m[1], name: (m[2] || '').replace(/_+/g, ' ').trim() } : null;
+}
+
+// Android hands the share sheet's own label over as the subject; it is never a game.
+const CHOOSER_LABEL = /^share(\s+(via|with|to|using))?$/i;
+
+const cleanTitle = (value) => {
+  const title = (value || '').trim();
+  return CHOOSER_LABEL.test(title) ? '' : title;
+};
+
+// Where an incoming query comes from, in priority order:
+//   ?q=      a link back into the app
+//   ?url=    the shared link, when the sharing app separates it out
+//   ?text=   the shared text: a selection, or the link itself, or both together
+//   ?title=  last resort only. Sharing a *text selection* on Android puts the share sheet's
+//            label ("Share via") in EXTRA_SUBJECT, which arrives here — so reading it ahead
+//            of ?text= searches for "Share via" instead of what you actually selected.
+// Returns an appid too when a Steam link was shared: that pins the catalogue entry exactly
+// rather than guessing from a slug or a page title.
+function sharedQuery() {
+  const params = new URLSearchParams(location.search);
+
+  const explicit = (params.get('q') || '').trim();
+  if (explicit) return { query: explicit };
+
+  const text = (params.get('text') || '').trim();
+  const embedded = /\bhttps?:\/\/\S+/.exec(text);
+  const link = asHttpUrl(params.get('url') || '') || (embedded && asHttpUrl(embedded[0]));
+
+  // "Check out Hades https://…" shares both; the words are the useful half.
+  const selection = text.replace(/\bhttps?:\/\/\S+/g, '').trim();
+
+  if (link) {
+    const steam = fromSteam(link);
+    if (steam && (steam.appid || steam.name)) {
+      return { query: steam.name || selection || cleanTitle(params.get('title')), appid: steam.appid };
+    }
+    // Some other link: its page title beats showing the raw URL in the search box.
+    return { query: selection || cleanTitle(params.get('title')) };
+  }
+
+  return { query: selection || cleanTitle(params.get('title')) };
+}
+
 async function init({ force = false } = {}) {
   ui.status.hidden = false;
   ui.status.className = 'status';
@@ -204,11 +264,17 @@ async function init({ force = false } = {}) {
     ui.count.textContent = `${games.length} games on GeForce NOW.`;
     ui.q.disabled = false;
 
-    const initial = new URLSearchParams(location.search);
-    const q = initial.get('q') || initial.get('title') || initial.get('text');
-    if (q) {
-      ui.q.value = q;
-      lookup(q);
+    const { query, appid } = sharedQuery();
+    // A shared Steam link names the game exactly, so skip the fuzzy match when we can.
+    const pinned = appid ? games.find((g) => g.appid === appid) : null;
+    if (pinned) {
+      ui.q.value = pinned.title;
+      lookup(pinned.title, pinned);
+    } else if (query || appid) {
+      // A slugless Steam link names nothing, but the appid still deep-links ProtonDB.
+      const label = query || `Steam app ${appid}`;
+      ui.q.value = label;
+      lookup(label, null, appid);
     } else {
       showEmpty();
       ui.q.focus();
@@ -279,12 +345,14 @@ function renderGfn(entry, query, near) {
   ui.gfnDetail.textContent = bits.join(' — ');
 }
 
-function renderProtonDb(entry, query) {
-  const url = entry && entry.appid ? PDB_APP + entry.appid
-    : PDB_SEARCH + encodeURIComponent(query);
+// `appid` is the fallback for a shared Steam link whose game isn't in the GFN catalogue:
+// we know the exact ProtonDB page even without a catalogue entry behind it.
+function renderProtonDb(entry, query, appid) {
+  const steamId = (entry && entry.appid) || appid;
+  const url = steamId ? PDB_APP + steamId : PDB_SEARCH + encodeURIComponent(query);
 
   ui.pdbLink.href = url;
-  ui.pdbDetail.textContent = entry && entry.appid
+  ui.pdbDetail.textContent = steamId
     ? ''
     : 'No Steam ID known — showing ProtonDB search; tap a result inside the panel.';
 
@@ -312,7 +380,7 @@ ui.frame.addEventListener('load', () => {
   ui.frameNote.hidden = true;
 });
 
-function lookup(query, entry) {
+function lookup(query, entry, appid) {
   query = query.trim();
   if (!query) { showEmpty(); return; }
 
@@ -329,15 +397,14 @@ function lookup(query, entry) {
   // Only offer alternatives that share a prefix; a bare substring hit ("hades" inside
   // "Shades of Horror") is noise, not a suggestion.
   renderGfn(resolved, query, resolved ? [] : hits.filter((h) => h.s <= 3));
-  renderProtonDb(resolved, query);
+  renderProtonDb(resolved, query, appid);
 
   hideSuggestions();
   ui.q.blur();
 
   const url = new URL(location.href);
   url.searchParams.set('q', query);
-  url.searchParams.delete('title');
-  url.searchParams.delete('text');
+  for (const param of ['title', 'text', 'url']) url.searchParams.delete(param);
   history.replaceState(null, '', url);
 }
 

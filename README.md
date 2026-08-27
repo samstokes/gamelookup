@@ -68,8 +68,9 @@ Then open `https://<user>.github.io/gamelookup/` in Chrome on Android and use th
 button in the app bar (or ⋮ → *Add to Home screen*). All paths are relative, so serving from
 a subdirectory is fine.
 
-Once installed it also registers as an Android **share target**: share a game name from any
-app and it lands straight in the lookup.
+Once installed it also registers as an Android **share target**: select a game name anywhere,
+share it to *Can I Play It*, and it lands straight in the lookup. Sharing a Steam link works
+too — the appid in the URL pins the ProtonDB page exactly.
 
 ## Files
 
@@ -95,6 +96,11 @@ app and it lands straight in the lookup.
 - **Offline.** The app opens and answers the GFN half with no connection. ProtonDB obviously
   needs one; the app says so instead of framing a browser error page — though it relies on
   `navigator.onLine`, which flags airplane mode reliably but not a dead Wi-Fi.
+- **Share target, and the "Share via" trap.** A shared text selection arrives as `?text=`,
+  but Android also fills `EXTRA_SUBJECT` with the share sheet's *own* label — so the app is
+  handed `?title=Share via` alongside it. `text` must therefore outrank `title`, or every
+  share searches for the string "Share via". `title` is a last resort only, for a shared link
+  whose page title is the one readable thing about it.
 - **Confidence.** A GFN result is only claimed on an exact or prefix match; looser matches
   are offered as "Did you mean". So "Not found" means genuinely absent from the catalogue
   rather than merely misspelled.
