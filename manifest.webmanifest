@@ -13,6 +13,26 @@
     { "src": "./icons/icon-512.png", "sizes": "512x512", "type": "image/png" },
     { "src": "./icons/icon-maskable-512.png", "sizes": "512x512", "type": "image/png", "purpose": "maskable" }
   ],
+  "shortcuts": [
+    {
+      "name": "Search ProtonDB and GeForce NOW",
+      "short_name": "Search a game",
+      "description": "Open the app with the search box focused.",
+      "url": "./?new=1"
+    },
+    {
+      "name": "Last game looked up",
+      "short_name": "Last game",
+      "description": "Re-open the verdict for the game you checked most recently.",
+      "url": "./?last=1"
+    },
+    {
+      "name": "Refresh the GeForce NOW list",
+      "short_name": "Refresh list",
+      "description": "Re-download the GeForce NOW catalogue before searching.",
+      "url": "./?refresh=1"
+    }
+  ],
   "share_target": {
     "action": "./",
     "method": "GET",
