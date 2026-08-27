@@ -71,59 +71,13 @@ a subdirectory is fine.
 Once installed it also registers as an Android **share target**: share a game name from any
 app and it lands straight in the lookup.
 
-### Android's app-drawer search
-
-Pull down the app drawer, type, and the launcher searches apps, settings, contacts, files —
-and the *contents* of a handful of apps. A PWA can join the first list and cannot join the
-second.
-
-The reason is the **AppSearch** API. Apps index their content into an on-device store that
-the launcher queries; that's why typing a contact's name surfaces a Messages thread. It is a
-native Android API (`android.app.appsearch`), so a WebAPK — which is what Chrome installs a
-PWA as — has nothing to call it with. There is no web-platform equivalent, proposed or
-shipped. Worse, on Pixel the set of apps whose content appears is a fixed first-party list
-(Clock, Contacts, Play Store, Settings, Wallet, and on Pixel 11 also Calendar, Drive, Files,
-Gmail, Messages, Photos, Screenshots) — which is exactly why it searches *some* apps and not
-others. Indexing into AppSearch is not by itself an admission ticket.
-
-So typing `hades` in the drawer and getting a GFN/ProtonDB verdict inline is out of reach.
-
-What *is* reachable is the drawer's **Shortcuts** result category, which matches app shortcut
-labels. Chrome turns the manifest's `shortcuts` into real Android app shortcuts, so the three
-entries below are searchable from the drawer and long-pressing the icon:
-
-| Shortcut | Launches | Drawer keywords |
-| --- | --- | --- |
-| Search a game | `./?new=1` — empty search box | search, game |
-| Last game | `./?last=1` — re-opens the last verdict | last, game |
-| Refresh list | `./?refresh=1` — refetches the catalogue first | refresh, list |
-
-Chrome on Android renders the first three shortcuts in the list, so ordering is the priority
-order. They're plain navigations to `start_url` with a query string — the same mechanism the
-share target already uses — which is why `app.js` funnels every entry point through one
-`entryPoint()` function. The one-shot params are stripped from the address bar immediately,
-so reloading a `?refresh=1` launch doesn't refetch the catalogue a second time.
-
-Two caveats. Shortcuts are **static**: they're baked into the WebAPK when Chrome installs or
-updates it, so they can't be per-game — "Last game" is a fixed shortcut that resolves the game
-at launch, not one shortcut per game. And Chrome only refreshes a WebAPK when it next checks
-the manifest (roughly daily), so on an already-installed copy the shortcuts appear a day
-later, not on the next load. Reinstalling forces it.
-
-**If you want the real thing**, the route is a Trusted Web Activity: `bubblewrap` wraps this
-same site in a thin Android app, and native code there can push dynamic `ShortcutManager`
-shortcuts (recent lookups, actually searchable by game name) and index into AppSearch. It's a
-real Android build with a Play listing and a Digital Asset Links file — a different kind of
-project from five static files, and even then AppSearch only gets you indexed, not into the
-Pixel first-party list.
-
 ## Files
 
     index.html              markup
     styles.css              styling, dark and light
     app.js                  catalogue fetch/cache, search, rendering
     sw.js                   service worker — offline app shell
-    manifest.webmanifest    PWA metadata, icons, share target, launcher shortcuts
+    manifest.webmanifest    PWA metadata, icons, share target
     icons/                  generated PNGs
 
 ## Notes

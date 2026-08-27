@@ -14,7 +14,6 @@ const PDB_SEARCH = 'https://www.protondb.com/search?q=';
 const DATA_CACHE = 'gfn-catalogue-v1';
 const CATALOGUE_KEY = './gfn-catalogue.json'; // synthetic Cache Storage key, never fetched
 const FETCHED_AT_KEY = 'gfn:fetchedAt';
-const LAST_QUERY_KEY = 'gfn:lastQuery'; // backs the manifest's "Last game" launcher shortcut
 const MAX_AGE_MS = 24 * 60 * 60 * 1000;
 const MAX_SUGGESTIONS = 8;
 
@@ -188,34 +187,6 @@ function describeAge(fetchedAt, stale) {
   return `${games.length} GFN games · updated ${when}${stale ? ' (offline)' : ''}`;
 }
 
-// Launcher shortcuts and the share target both arrive as a plain navigation to start_url
-// with a query string, so every entry point is decided here:
-//   ?q= / ?title= / ?text=   look this up (share target, or a link back into the app)
-//   ?last=1                  re-open the game looked up last
-//   ?new=1                   ignore any of the above and start on an empty search box
-//   ?refresh=1               re-download the catalogue before searching
-const ONE_SHOT_PARAMS = ['title', 'text', 'last', 'new', 'refresh'];
-
-function entryPoint() {
-  const params = new URLSearchParams(location.search);
-  const fresh = params.has('new');
-  const stored = params.has('last') ? localStorage.getItem(LAST_QUERY_KEY) : '';
-  return {
-    query: fresh ? '' : (params.get('q') || params.get('title') || params.get('text') || stored || ''),
-    force: params.has('refresh'),
-  };
-}
-
-// Rewrite the address bar to the plain ?q= form. Without this a reload of a shortcut launch
-// would act on ?refresh=1 a second time, and ?new=1 would keep wiping the restored query.
-function normaliseUrl(query) {
-  const url = new URL(location.href);
-  if (query) url.searchParams.set('q', query);
-  else url.searchParams.delete('q');
-  for (const param of ONE_SHOT_PARAMS) url.searchParams.delete(param);
-  history.replaceState(null, '', url);
-}
-
 async function init({ force = false } = {}) {
   ui.status.hidden = false;
   ui.status.className = 'status';
@@ -233,10 +204,11 @@ async function init({ force = false } = {}) {
     ui.count.textContent = `${games.length} games on GeForce NOW.`;
     ui.q.disabled = false;
 
-    const { query } = entryPoint();
-    if (query) {
-      ui.q.value = query;
-      lookup(query);
+    const initial = new URLSearchParams(location.search);
+    const q = initial.get('q') || initial.get('title') || initial.get('text');
+    if (q) {
+      ui.q.value = q;
+      lookup(q);
     } else {
       showEmpty();
       ui.q.focus();
@@ -362,8 +334,11 @@ function lookup(query, entry) {
   hideSuggestions();
   ui.q.blur();
 
-  localStorage.setItem(LAST_QUERY_KEY, query);
-  normaliseUrl(query);
+  const url = new URL(location.href);
+  url.searchParams.set('q', query);
+  url.searchParams.delete('title');
+  url.searchParams.delete('text');
+  history.replaceState(null, '', url);
 }
 
 // ---------------------------------------------------------------- suggestions
@@ -508,7 +483,4 @@ if ('serviceWorker' in navigator) {
 }
 
 ui.q.disabled = true;
-// Normalise first, so the URL init() reads back is the plain ?q= form.
-const launch = entryPoint();
-normaliseUrl(launch.query);
-init({ force: launch.force });
+init();
