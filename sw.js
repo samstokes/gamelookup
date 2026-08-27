@@ -1,7 +1,7 @@
 'use strict';
 
 // Bump VERSION to push a new app shell to installed copies.
-const VERSION = 'v2';
+const VERSION = 'v3';
 const SHELL = 'shell-' + VERSION;
 
 // The catalogue cache is written by app.js; listing it here keeps activate from reaping it.
