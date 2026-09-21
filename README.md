@@ -27,25 +27,47 @@ The catalogue is condensed to what the UI needs (title, publisher, stores, Steam
 type, membership tier), cached in Cache Storage — 763 KB, refreshed once a day — and searched
 locally. That half is instant and works offline.
 
-**ProtonDB** cannot be read from the browser at all:
+**ProtonDB's verdict** cannot be read from the browser at all:
 
 | Attempt | Why it fails |
 | --- | --- |
 | `protondb.com/api/v1/reports/summaries/<appid>.json` | `ACAO` is pinned to `https://www.protondb.com` |
 | Scraping `protondb.com/search?q=` | Same, and the HTML is a 3 KB empty SPA shell anyway |
-| Their search backend (SteamDB's Algolia index) | CORS is open, but the API key is Referer-locked to `protondb.com`, and `Referer` is a forbidden header |
+| SteamDB's Algolia index directly | CORS is open, but the API key is Referer-locked to `protondb.com`, and `Referer` is a forbidden header |
 
 Reading the tier into our own UI would therefore need a server-side proxy. Instead the app
 **embeds ProtonDB's own page in an iframe** — they send no `X-Frame-Options` and no
 `frame-ancestors`, so framing works, and their page renders the tier badge itself.
 
-97% of catalogue entries carry a Steam appid, so the app almost always deep-links straight to
-`/app/<appid>`. Otherwise it frames `/search?q=<name>`, whose results carry tier badges too —
-so you still see PLATINUM/GOLD without tapping through.
+That page is `/app/<appid>`, so everything turns on having a Steam appid. 97% of GFN
+catalogue entries carry one. For the rest — and for every game that isn't on GeForce NOW at
+all — the app asks ProtonDB's *own* search backend:
+
+    POST https://www.protondb.com/proxy/steamdb2/query
+
+This is their proxy in front of SteamDB's Algolia index, and unlike everything under `/api/`
+it answers any origin, so the Referer lock never comes into it. The form-urlencoded content
+type is what their client sends and keeps the request "simple": no preflight before a lookup.
+It is typo-tolerant, too — `deusex` finds *Deus Ex*.
+
+Two things hang off it:
+
+- **Suggestions.** Games Steam knows and GeForce NOW doesn't are offered in the dropdown,
+  tagged *Not on GFN*. Before, typing a name absent from the GFN catalogue — *Life is Strange:
+  Reunion*, say — produced no rows at all, because the GFN catalogue was the only list there
+  was. The request is debounced, so it costs one call per pause in typing, not one per key.
+- **The panel.** It frames `/app/<appid>` whether or not GFN has heard of the game. Falling
+  back to `/search?q=<name>` is much worse than it sounds: that results grid is Steam capsule
+  images with *no titles under them*, and a game too new to have a capsule renders as a
+  broken-image icon over its bare appid. `/search` is now only the last resort, for when the
+  proxy is unreachable or Steam has nothing.
+
+When the appid came from a title rather than from the catalogue or a shared link, the panel
+says which game it settled on (`Closest Steam match: …`) unless the name matched exactly.
 
 The trade-off: same-origin policy still stops the app *reading* the frame, so the ProtonDB
 verdict is their page as-is rather than a compact badge in the app's own styling. Making it
-a native badge means running a proxy.
+a native badge means running a proxy of our own.
 
 ## Running it
 
@@ -103,8 +125,11 @@ too — the appid in the URL pins the ProtonDB page exactly.
   whose page title is the one readable thing about it.
 - **Confidence.** A GFN result is only claimed on an exact or prefix match; looser matches
   are offered as "Did you mean". So "Not found" means genuinely absent from the catalogue
-  rather than merely misspelled.
-- **Fragility.** Both sources are unofficial. If ProtonDB ever sends `frame-ancestors`, the
-  panel goes blank and the *Open ↗* link becomes the fallback. The NVIDIA endpoint is the one
+  rather than merely misspelled — and, since Steam titles are listed alongside, "Not found"
+  next to a *Not on GFN* row is the app agreeing with itself rather than failing to search.
+- **Fragility.** All three endpoints are unofficial. If ProtonDB ever sends `frame-ancestors`,
+  the panel goes blank and the *Open ↗* link becomes the fallback. If their SteamDB proxy
+  stops answering other origins, appid lookups fail quietly: the suggestion list shrinks back
+  to GFN titles and the panel frames `/search?q=` as it used to. The NVIDIA endpoint is the one
   their own site depends on, but it is not a documented public API — if its shape changes the
   app keeps serving the last cached catalogue and says how old it is.
