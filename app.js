@@ -11,9 +11,13 @@ const GFN_PAGE_LIMIT = 20; // pages are 750 items; a guard against looping forev
 const PDB_APP = 'https://www.protondb.com/app/';
 const PDB_SEARCH = 'https://www.protondb.com/search?q=';
 
-const DATA_CACHE = 'gfn-catalogue-v1';
+// Cache Storage and localStorage are origin-wide, and branch previews share the origin with
+// the real app (see .github/workflows/pages.yml), so both names carry this copy's own path.
+// sw.js derives the cache name the same way, to know not to reap it.
+const SCOPE = new URL('./', location.href).pathname;
+const DATA_CACHE = `gfn-catalogue-v1@${SCOPE}`;
 const CATALOGUE_KEY = './gfn-catalogue.json'; // synthetic Cache Storage key, never fetched
-const FETCHED_AT_KEY = 'gfn:fetchedAt';
+const FETCHED_AT_KEY = `gfn:fetchedAt@${SCOPE}`;
 const MAX_AGE_MS = 24 * 60 * 60 * 1000;
 const MAX_SUGGESTIONS = 8;
 

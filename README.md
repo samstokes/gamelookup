@@ -57,12 +57,20 @@ Any static HTTPS host works. Locally:
 
 ### On the phone
 
-HTTPS is required for Android to offer *Install app*. GitHub Pages is the least-effort route:
+HTTPS is required for Android to offer *Install app*. GitHub Pages is the least-effort route.
+`.github/workflows/pages.yml` does the deploying, so Pages has to be sourced from Actions
+rather than from a branch:
 
     git add -A && git commit -m "Can I Play It"
     gh repo create gamelookup --public --source=. --push
-    gh api -X POST repos/:owner/gamelookup/pages -f build_type=legacy \
-      -f 'source[branch]=main' -f 'source[path]=/'
+    gh api -X POST repos/:owner/gamelookup/pages -f build_type=workflow
+
+    # Previews deploy from their own branch, which the environment blocks by default.
+    gh api -X PUT repos/:owner/gamelookup/environments/github-pages \
+      -F 'deployment_branch_policy[protected_branches]=false' \
+      -F 'deployment_branch_policy[custom_branch_policies]=true'
+    gh api -X POST repos/:owner/gamelookup/environments/github-pages/deployment-branch-policies \
+      -f name='*'
 
 Then open `https://<user>.github.io/gamelookup/` in Chrome on Android and use the **Install**
 button in the app bar (or ⋮ → *Add to Home screen*). All paths are relative, so serving from
@@ -72,6 +80,28 @@ Once installed it also registers as an Android **share target**: select a game n
 share it to *Can I Play It*, and it lands straight in the lookup. Sharing a Steam link works
 too — the appid in the URL pins the ProtonDB page exactly.
 
+### Branch previews
+
+Every branch gets its own copy of the app, so a change can be opened on the phone before it
+lands on `main`:
+
+    main                    https://<user>.github.io/gamelookup/
+    some/branch             https://<user>.github.io/gamelookup/branches/some-branch/
+                            https://<user>.github.io/gamelookup/branches/   — the index
+
+A Pages deployment replaces the whole site, so there is nowhere to accumulate previews
+incrementally: each run rebuilds the site from every branch at once. That keeps it a pure
+function of the repo — a deleted branch's preview disappears on the next run — at the cost of
+republishing everything on every push. At 76 KB a copy that is a bargain.
+
+Slashes in a branch name become `-` in the path. A preview is otherwise byte-identical to the
+real app and just as installable, which is a good way to end up with two indistinguishable
+icons on a home screen — so the build stamps each one: a banner naming the branch, a branch
+suffix on the manifest's `name`, and `noindex` to keep previews out of search results.
+
+`.github/scripts/build-pages.sh _site` does the assembling and runs fine outside CI, so the
+combined layout can be checked locally before pushing.
+
 ## Files
 
     index.html              markup
@@ -80,6 +110,7 @@ too — the appid in the URL pins the ProtonDB page exactly.
     sw.js                   service worker — offline app shell
     manifest.webmanifest    PWA metadata, icons, share target
     icons/                  generated PNGs
+    .github/                Pages deploy — workflow plus the site-assembly script
 
 ## Notes
 
@@ -90,6 +121,13 @@ too — the appid in the URL pins the ProtonDB page exactly.
   `navigator.language` (`en-GB` → `GB`), falling back to `US`.
 - **Updating the app.** The service worker serves the cached shell first, so an edit shows
   up on the *second* load. Bump `VERSION` in `sw.js` to push a change out immediately.
+- **Previews and the service worker.** Cache Storage, `localStorage` and worker scopes are all
+  origin-wide, and a preview shares the origin with the real app — worse, the app's worker is
+  registered at `/gamelookup/`, which *contains* every preview path. So cache names are tagged
+  with the deployment's own path, and the worker answers only for the exact shell URLs it
+  precached: a navigation to a preview falls through to the network instead of being served
+  the app's own `index.html`. Without that, opening a preview with the app installed would
+  quietly show you `main`.
 - **Catalogue freshness.** It refreshes on first use each day; *Refresh list* in the footer
   forces it. The footer shows how old the data is, and says `(offline)` when serving a stale
   copy.
