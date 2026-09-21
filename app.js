@@ -11,6 +11,16 @@ const GFN_PAGE_LIMIT = 20; // pages are 750 items; a guard against looping forev
 const PDB_APP = 'https://www.protondb.com/app/';
 const PDB_SEARCH = 'https://www.protondb.com/search?q=';
 
+// ProtonDB's own search box is backed by SteamDB's Algolia index, reached through a proxy of
+// theirs which — unlike everything under /api/ — answers any origin. It is how the app turns
+// a bare title into a Steam appid for the ~3% of games the GFN catalogue has never heard of,
+// and an appid is the difference between a real verdict page and their search grid. The
+// form-urlencoded content type is what their client sends, and it keeps this a simple
+// request: no preflight round trip before every lookup.
+const STEAM_SEARCH = 'https://www.protondb.com/proxy/steamdb2/query';
+const MAX_STEAM_SUGGESTIONS = 4;
+const STEAM_DEBOUNCE_MS = 250;
+
 const DATA_CACHE = 'gfn-catalogue-v1';
 const CATALOGUE_KEY = './gfn-catalogue.json'; // synthetic Cache Storage key, never fetched
 const FETCHED_AT_KEY = 'gfn:fetchedAt';
@@ -37,6 +47,9 @@ let games = [];
 let matches = [];
 let cursor = -1;
 let frameTimer = null;
+let pdbSeq = 0;      // guards the panel against a slow lookup landing after a newer one
+let steamTimer = null;
+let suggestSeq = 0;
 
 // ---------------------------------------------------------------- text matching
 
@@ -72,6 +85,39 @@ function search(query, limit = MAX_SUGGESTIONS) {
     a.entry.title.length - b.entry.title.length ||
     a.entry.title.localeCompare(b.entry.title));
   return hits.slice(0, limit);
+}
+
+// ---------------------------------------------------------------- steam titles
+
+const steamCache = new Map();
+
+// Names and appids only — enough to offer a suggestion and to deep-link ProtonDB.
+async function searchSteam(query, limit = MAX_STEAM_SUGGESTIONS) {
+  const key = limit + ':' + spaced(query);
+  if (steamCache.has(key)) return steamCache.get(key);
+
+  const res = await fetch(STEAM_SEARCH, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/x-www-form-urlencoded' }, // see STEAM_SEARCH
+    body: JSON.stringify({
+      query,
+      hitsPerPage: limit,
+      // Without this every result set is padded with DLC, soundtracks and trailers, which
+      // have ProtonDB pages of their own that say nothing about the game.
+      facetFilters: [['appType:Game']],
+      attributesToRetrieve: ['name', 'objectID', 'releaseYear'],
+      attributesToHighlight: [],
+    }),
+  });
+  if (!res.ok) throw new Error('HTTP ' + res.status); // 429 when we have been too eager
+
+  const hits = ((await res.json()).hits || [])
+    .filter((h) => h.name && /^\d+$/.test(String(h.objectID)))
+    .map((h) => ({ title: h.name, appid: String(h.objectID), year: h.releaseYear || null }));
+
+  if (steamCache.size > 64) steamCache.clear();
+  steamCache.set(key, hits);
+  return hits;
 }
 
 // ---------------------------------------------------------------- catalogue
@@ -291,6 +337,8 @@ async function init({ force = false } = {}) {
 // ---------------------------------------------------------------- rendering
 
 function showEmpty() {
+  pdbSeq++; // don't let a lookup still in flight frame something behind the empty state
+  clearTimeout(frameTimer);
   ui.result.hidden = true;
   ui.empty.hidden = false;
   ui.frame.removeAttribute('src');
@@ -345,16 +393,9 @@ function renderGfn(entry, query, near) {
   ui.gfnDetail.textContent = bits.join(' — ');
 }
 
-// `appid` is the fallback for a shared Steam link whose game isn't in the GFN catalogue:
-// we know the exact ProtonDB page even without a catalogue entry behind it.
-function renderProtonDb(entry, query, appid) {
-  const steamId = (entry && entry.appid) || appid;
-  const url = steamId ? PDB_APP + steamId : PDB_SEARCH + encodeURIComponent(query);
-
+function frameProtonDb(url, note) {
   ui.pdbLink.href = url;
-  ui.pdbDetail.textContent = steamId
-    ? ''
-    : 'No Steam ID known — showing ProtonDB search; tap a result inside the panel.';
+  ui.pdbDetail.textContent = note || '';
 
   ui.frameNote.hidden = true;
   clearTimeout(frameTimer);
@@ -373,6 +414,43 @@ function renderProtonDb(entry, query, appid) {
     ui.frameNote.hidden = false;
     ui.frameNote.textContent = 'ProtonDB is slow to load — try Open ↗ above.';
   }, 8000);
+}
+
+// `appid` is the fallback for a shared Steam link whose game isn't in the GFN catalogue:
+// we know the exact ProtonDB page even without a catalogue entry behind it.
+async function renderProtonDb(entry, query, appid) {
+  const seq = ++pdbSeq;
+  const steamId = (entry && entry.appid) || appid;
+  if (steamId) { frameProtonDb(PDB_APP + steamId); return; }
+
+  // No appid anywhere: ask ProtonDB's own search backend for one rather than framing
+  // /search?q=. Their results page is a grid of Steam capsule images with no titles under
+  // them, and a game too new to have a capsule — Life is Strange: Reunion, say — renders as
+  // a broken-image icon over its bare appid. /app/<appid> is the page worth showing.
+  ui.pdbLink.href = PDB_SEARCH + encodeURIComponent(query);
+  ui.pdbDetail.textContent = 'Looking for it on Steam…';
+  ui.frame.removeAttribute('src');
+  ui.frameNote.hidden = true;
+  clearTimeout(frameTimer);
+
+  if (navigator.onLine) {
+    try {
+      const [hit] = await searchSteam(query, 1);
+      if (seq !== pdbSeq) return; // a newer lookup owns the panel now
+      if (hit) {
+        // Say which game we landed on unless it is plainly the one that was asked for:
+        // the appid is a guess from a title, not something the catalogue vouched for.
+        const exact = compact(hit.title) === compact(query);
+        frameProtonDb(PDB_APP + hit.appid, exact ? '' : `Closest Steam match: ${hit.title}.`);
+        return;
+      }
+    } catch (err) {
+      if (seq !== pdbSeq) return; // fall through to the search page below
+    }
+  }
+
+  frameProtonDb(PDB_SEARCH + encodeURIComponent(query),
+    'No Steam ID known — showing ProtonDB search; tap a result inside the panel.');
 }
 
 ui.frame.addEventListener('load', () => {
@@ -411,6 +489,8 @@ function lookup(query, entry, appid) {
 // ---------------------------------------------------------------- suggestions
 
 function hideSuggestions() {
+  clearTimeout(steamTimer);
+  suggestSeq++; // anything already in flight is stale
   ui.suggestions.hidden = true;
   ui.suggestions.textContent = '';
   ui.q.setAttribute('aria-expanded', 'false');
@@ -418,36 +498,78 @@ function hideSuggestions() {
   cursor = -1;
 }
 
-function renderSuggestions(query) {
+// Acting on a row, whichever way it was chosen. A Steam row carries its appid so the
+// ProtonDB panel skips the guesswork and goes straight to that page.
+function choose(match, fallback) {
+  if (match && match.entry) {
+    ui.q.value = match.entry.title;
+    lookup(match.entry.title, match.entry);
+  } else if (match && match.steam) {
+    ui.q.value = match.steam.title;
+    lookup(match.steam.title, null, match.steam.appid);
+  } else {
+    lookup(fallback);
+  }
+}
+
+function suggestionRow(text, hint) {
+  const li = document.createElement('li');
+  li.setAttribute('role', 'option');
+
+  const title = document.createElement('span');
+  title.className = 's-title';
+  title.textContent = text;
+
+  const note = document.createElement('span');
+  note.className = 's-hint';
+  note.textContent = hint;
+
+  li.append(title, note);
+  li.addEventListener('mousedown', (e) => e.preventDefault()); // keep focus off blur
+  return li;
+}
+
+// Steam titles the GFN catalogue already covers would just be duplicate rows.
+function steamOnly(hits, gfnMatches) {
+  const seen = new Set();
+  for (const { entry } of gfnMatches) {
+    seen.add(entry.compact);
+    if (entry.appid) seen.add(entry.appid);
+  }
+  return hits.filter((h) => !seen.has(compact(h.title)) && !seen.has(h.appid))
+    .slice(0, MAX_STEAM_SUGGESTIONS);
+}
+
+const sameRow = (a, b) => a.entry === b.entry && a.steam === b.steam && !a.raw === !b.raw;
+
+function renderSuggestions(query, steam = []) {
+  // Steam rows arrive a beat after the local ones, so keep whatever the keyboard was on.
+  const selected = cursor >= 0 ? matches[cursor] : null;
+
   matches = search(query);
   ui.suggestions.textContent = '';
   cursor = -1;
 
   const rows = [];
   for (const { entry } of matches) {
-    const li = document.createElement('li');
-    li.setAttribute('role', 'option');
-
-    const title = document.createElement('span');
-    title.className = 's-title';
-    title.textContent = entry.title;
-
     // Publisher, not a "GFN" tag: every row here is on GFN, and duplicate titles
     // (two different games called Mixtape) are only told apart by publisher.
-    const hint = document.createElement('span');
-    hint.className = 's-hint';
-    hint.textContent = entry.publisher;
-
-    li.append(title, hint);
-    li.addEventListener('mousedown', (e) => e.preventDefault()); // keep focus off blur
-    li.addEventListener('click', () => {
-      ui.q.value = entry.title;
-      lookup(entry.title, entry);
-    });
+    const li = suggestionRow(entry.title, entry.publisher);
+    li.addEventListener('click', () => choose({ entry }));
     rows.push(li);
   }
 
-  // Always offer the raw query: plenty of games are on ProtonDB but not GFN.
+  for (const hit of steamOnly(steam, matches)) {
+    // These are the ProtonDB half of the answer on their own: Steam knows them, the GFN
+    // catalogue does not. Say so, rather than letting them pass for streamable games.
+    const hint = [hit.year, games.length ? 'Not on GFN' : 'Steam'].filter(Boolean).join(' · ');
+    const li = suggestionRow(hit.title, hint);
+    li.addEventListener('click', () => choose({ steam: hit }));
+    rows.push(li);
+    matches.push({ steam: hit });
+  }
+
+  // Always offer the raw query: it is the way to look up anything neither list named.
   const raw = document.createElement('li');
   raw.setAttribute('role', 'option');
   raw.className = 's-raw';
@@ -462,6 +584,32 @@ function renderSuggestions(query) {
   ui.suggestions.append(...rows);
   ui.suggestions.hidden = false;
   ui.q.setAttribute('aria-expanded', 'true');
+
+  if (selected) {
+    const i = matches.findIndex((m) => sameRow(m, selected));
+    if (i >= 0) { cursor = i; rows[i].setAttribute('aria-selected', 'true'); }
+  }
+}
+
+// Naming the games ProtonDB has and GFN hasn't costs a request, so it waits for a pause in
+// typing; the local rows are already on screen by then. Failure just means no extra rows.
+function scheduleSteamSuggestions(query) {
+  clearTimeout(steamTimer);
+  const seq = ++suggestSeq;
+  if (!navigator.onLine) return;
+
+  steamTimer = setTimeout(async () => {
+    let hits;
+    try {
+      // Over-fetch: on a query like "life is strange" the first few hits are all games the
+      // GFN catalogue already lists, and those rows get dropped as duplicates.
+      hits = await searchSteam(query, MAX_STEAM_SUGGESTIONS * 2);
+    } catch (err) {
+      return;
+    }
+    if (seq !== suggestSeq || ui.suggestions.hidden || ui.q.value.trim() !== query) return;
+    if (hits.length) renderSuggestions(query, hits);
+  }, STEAM_DEBOUNCE_MS);
 }
 
 function moveCursor(delta) {
@@ -479,7 +627,7 @@ ui.q.addEventListener('input', () => {
   const value = ui.q.value.trim();
   ui.clear.hidden = !value;
   if (value.length < 2) hideSuggestions();
-  else renderSuggestions(value);
+  else { renderSuggestions(value); scheduleSteamSuggestions(value); }
 });
 
 ui.q.addEventListener('keydown', (e) => {
@@ -491,18 +639,12 @@ ui.q.addEventListener('keydown', (e) => {
 
 ui.q.addEventListener('focus', () => {
   const value = ui.q.value.trim();
-  if (value.length >= 2) renderSuggestions(value);
+  if (value.length >= 2) { renderSuggestions(value); scheduleSteamSuggestions(value); }
 });
 
 ui.form.addEventListener('submit', (e) => {
   e.preventDefault();
-  const picked = cursor >= 0 ? matches[cursor] : null;
-  if (picked && picked.entry) {
-    ui.q.value = picked.entry.title;
-    lookup(picked.entry.title, picked.entry);
-  } else {
-    lookup(ui.q.value);
-  }
+  choose(cursor >= 0 ? matches[cursor] : null, ui.q.value);
 });
 
 ui.clear.addEventListener('click', () => {
